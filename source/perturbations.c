@@ -1173,7 +1173,8 @@ int perturb_indices(
         ppt->has_source_theta_tot = _TRUE_;
         ppt->has_source_theta_g = _TRUE_;
         ppt->has_source_theta_b = _TRUE_;
-        if ((pba->has_cdm == _TRUE_) && (ppt->gauge != synchronous))
+        //if ((pba->has_cdm == _TRUE_) && (ppt->gauge != synchronous)) ---------> [VdF] Need for \theta_cdm in the synchronous gauge as well in the case of coupling between DM and the scalar field
+        if (pba->has_cdm == _TRUE_)
           ppt->has_source_theta_cdm = _TRUE_;
         if (pba->has_dcdm == _TRUE_)
           ppt->has_source_theta_dcdm = _TRUE_;
@@ -3719,8 +3720,8 @@ int perturb_vector_init(
     /* cdm */
 
     class_define_index(ppv->index_pt_delta_cdm,pba->has_cdm,index_pt,1); /* cdm density */
-    class_define_index(ppv->index_pt_theta_cdm,pba->has_cdm && (ppt->gauge == newtonian),index_pt,1); /* cdm velocity */
-
+    //class_define_index(ppv->index_pt_theta_cdm,pba->has_cdm && (ppt->gauge == newtonian),index_pt,1); /* cdm velocity */ ----------------> [VdF] valid in the synchronous gauge as well in case of coupling
+    class_define_index(ppv->index_pt_theta_cdm,pba->has_cdm,index_pt,1);
     /* idm_dr */
     class_define_index(ppv->index_pt_delta_idm_dr,pba->has_idm_dr,index_pt,1); /* idm_dr density */
     class_define_index(ppv->index_pt_theta_idm_dr,pba->has_idm_dr,index_pt,1); /* idm_dr velocity */
@@ -3820,6 +3821,7 @@ int perturb_vector_init(
 
     /* metric perturbation eta of synchronous gauge */
     class_define_index(ppv->index_pt_eta,ppt->gauge == synchronous,index_pt,1);
+    class_define_index(ppv->index_pt_h,ppt->gauge == synchronous,index_pt,1); //---------------> [VdF] we do not use the constraint equation to infer h.
 
     /* metric perturbation phi of newtonian gauge ( we could fix it
        using Einstein equations as a constraint equation for phi, but
@@ -4170,10 +4172,13 @@ int perturb_vector_init(
         ppv->y[ppv->index_pt_delta_cdm] =
           ppw->pv->y[ppw->pv->index_pt_delta_cdm];
 
-        if (ppt->gauge == newtonian) {
-          ppv->y[ppv->index_pt_theta_cdm] =
-            ppw->pv->y[ppw->pv->index_pt_theta_cdm];
-        }
+        ppv->y[ppv->index_pt_theta_cdm] =
+          ppw->pv->y[ppw->pv->index_pt_theta_cdm];
+
+        //if (ppt->gauge == newtonian) {----------------------------------------> [VdF] valid in synchronous gauge as well in case of coupling
+          //ppv->y[ppv->index_pt_theta_cdm] =
+            //ppw->pv->y[ppw->pv->index_pt_theta_cdm];
+        //}
       }
 
       if (pba->has_idm_dr == _TRUE_) {
@@ -4225,9 +4230,12 @@ int perturb_vector_init(
           ppw->pv->y[ppw->pv->index_pt_phi_prime_scf];
       }
 
-      if (ppt->gauge == synchronous)
+      if (ppt->gauge == synchronous) {
         ppv->y[ppv->index_pt_eta] =
           ppw->pv->y[ppw->pv->index_pt_eta];
+        ppv->y[ppv->index_pt_h] = // -------------------------------------------> [VdF] h integration like \eta because of the coupling
+          ppw->pv->y[ppw->pv->index_pt_h];
+        }
 
       if (ppt->gauge == newtonian)
         ppv->y[ppv->index_pt_phi] =
@@ -5079,9 +5087,11 @@ int perturb_initial_conditions(struct precision * ppr,
 
   /** --> Declare local variables */
 
+  double scf_beta=0.; // -------------------------------------------------------> [VdF] beta to be used in the initial condition for delta_cdm
   double a,a_prime_over_a;
   double w_fld,dw_over_da_fld,integral_fld;
   double delta_ur=0.,theta_ur=0.,shear_ur=0.,l3_ur=0.,eta=0.,delta_cdm=0.,alpha, alpha_prime;
+  double h=0.,theta_cdm=0.; //---------------------------------------------------------------> [VdF] initializes h (similarly to eta as in the line above), as well as theta_cdm
   double delta_dr=0;
   double q,epsilon,k2;
   int index_q,n_ncdm,idx;
@@ -5232,8 +5242,12 @@ int perturb_initial_conditions(struct precision * ppr,
       ppw->pv->y[ppw->pv->index_pt_theta_b] = ppw->pv->y[ppw->pv->index_pt_theta_g]; /* baryon velocity */
 
       if (pba->has_cdm == _TRUE_) {
-        ppw->pv->y[ppw->pv->index_pt_delta_cdm] = 3./4.*ppw->pv->y[ppw->pv->index_pt_delta_g]; /* cdm density */
-        /* cdm velocity vanishes in the synchronous gauge */
+        if (pba->has_scf == _TRUE_) {
+          scf_beta = pba->scf_parameters[1];
+        }
+        ppw->pv->y[ppw->pv->index_pt_delta_cdm] = 3./4.*ppw->pv->y[ppw->pv->index_pt_delta_g]*(1.-scf_beta/3.*ppw->pvecback[pba->index_bg_phi_prime_scf]/a_prime_over_a); /* cdm density */ //-------------------------------------------> [VdF] initial condition affected ny the coupling
+        /* cdm velocity vanishes in the synchronous gauge */ //-----------------> [VdF] Not valid in case of coupling. We set arbitrarily theta_cdm=0 initially
+        ppw->pv->y[ppw->pv->index_pt_theta_cdm] = 0.;
       }
 
       /* interacting dark matter */
@@ -5299,6 +5313,8 @@ int perturb_initial_conditions(struct precision * ppr,
       //eta = ppr->curvature_ini * (1.-ktau_two/12./(15.+4.*fracnu)*(5.+4.*fracnu - (16.*fracnu*fracnu+280.*fracnu+325)/10./(2.*fracnu+15.)*tau*om)) /  s2_squared;
       //eta = ppr->curvature_ini * s2_squared * (1.-ktau_two/12./(15.+4.*fracnu)*(15.*s2_squared-10.+4.*s2_squared*fracnu - (16.*fracnu*fracnu+280.*fracnu+325)/10./(2.*fracnu+15.)*tau*om));
       eta = ppr->curvature_ini * (1.-ktau_two/12./(15.+4.*fracnu)*(5.+4.*s2_squared*fracnu - (16.*fracnu*fracnu+280.*fracnu+325)/10./(2.*fracnu+15.)*tau*om));
+      /* synchronous metric perturbation h */
+      h = ktau_two/2. * (1.-om*tau/5.) * ppr->curvature_ini * s2_squared; //----> [Vdf] initial condition for h since it is to be integrated, similarly to eta.
 
     }
 
@@ -5447,6 +5463,7 @@ int perturb_initial_conditions(struct precision * ppr,
     if (ppt->gauge == synchronous) {
 
       ppw->pv->y[ppw->pv->index_pt_eta] = eta;
+      ppw->pv->y[ppw->pv->index_pt_h] = h; //-----------------------------------> Also applies to h in case of coupling
     }
 
 
@@ -6235,6 +6252,7 @@ int perturb_einstein(
 
   /** - define local variables */
 
+  double scf_beta=0.; //--------------------------------------------------------> [VdF] beta to be used in the gauge transformation into gauge-invariant quantity
   double k2,a,a2,a_prime_over_a;
   double s2_squared;
   double shear_g = 0.;
@@ -6366,10 +6384,13 @@ int perturb_einstein(
 
     /* transform (delta_m, theta_m) of the current gauge into
        gauge-independent variables (you could comment this out if you
-       really want gauge-dependent results) */
+       really want gauge-dependent results) */ //-------------------------------> [VdF] the gauge transformation is affected by the coupling
 
     if (ppt->has_source_delta_m == _TRUE_) {
-      ppw->delta_m += 3. *ppw->pvecback[pba->index_bg_a]*ppw->pvecback[pba->index_bg_H] * ppw->theta_m/k2;
+      if (pba->has_scf == _TRUE_) {
+        scf_beta = pba->scf_parameters[1]; // ---------------------------------------> [VdF] Assign beta value to be used below
+      }
+      ppw->delta_m += (3.*ppw->pvecback[pba->index_bg_a]*ppw->pvecback[pba->index_bg_H] -scf_beta*ppw->pvecback[pba->index_bg_phi_prime_scf]*ppw->pvecback[pba->index_bg_rho_cdm]/(ppw->pvecback[pba->index_bg_rho_b]+ppw->pvecback[pba->index_bg_rho_cdm])) * ppw->theta_m/k2;
       // note: until 2.4.3 there was a typo, the factor was (-2 H'/H) instead
       // of (3 aH). There is the same typo in the CLASSgal paper
       // 1307.1459v1,v2,v3. It came from a confusion between (1+w_total)
@@ -6628,8 +6649,8 @@ int perturb_total_stress_energy(
     /* cdm contribution */
     if (pba->has_cdm == _TRUE_) {
       ppw->delta_rho += ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_delta_cdm]; // contribution to total perturbed stress-energy
-      if (ppt->gauge == newtonian)
-        ppw->rho_plus_p_theta = ppw->rho_plus_p_theta + ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_theta_cdm]; // contribution to total perturbed stress-energy
+      //if (ppt->gauge == newtonian) -------------------------------------------> [VdF] valid in the synchronous gauge as well in case of coupling
+      ppw->rho_plus_p_theta = ppw->rho_plus_p_theta + ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_theta_cdm]; // contribution to total perturbed stress-energy
 
       ppw->rho_plus_p_tot += ppw->pvecback[pba->index_bg_rho_cdm];
 
@@ -6638,8 +6659,8 @@ int perturb_total_stress_energy(
         rho_m += ppw->pvecback[pba->index_bg_rho_cdm];
       }
       if ((ppt->has_source_delta_m == _TRUE_) || (ppt->has_source_theta_m == _TRUE_)) {
-        if (ppt->gauge == newtonian)
-          rho_plus_p_theta_m += ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_theta_cdm]; // contribution to [(rho+p)theta]_matter
+        //if (ppt->gauge == newtonian) -----------------------------------------> // [VdF] valid in the synchronous gauge as well in case of coupling
+        rho_plus_p_theta_m += ppw->pvecback[pba->index_bg_rho_cdm]*y[ppw->pv->index_pt_theta_cdm]; // contribution to [(rho+p)theta]_matter
         rho_plus_p_m += ppw->pvecback[pba->index_bg_rho_cdm];
       }
     }
@@ -7381,7 +7402,8 @@ int perturb_sources(
 
       /* cdm is always on in synchronous gauge, see error message above that checks gauge and has_cdm */
       if (ppt->has_source_h == _TRUE_)
-        _set_source_(ppt->index_tp_h) = - 2 * y[ppw->pv->index_pt_delta_cdm];
+        //_set_source_(ppt->index_tp_h) = - 2 * y[ppw->pv->index_pt_delta_cdm]; ------------------------------> [VdF] h not infered through constraint equation, but it is integrated (similarly to eta) in case of coupling
+        _set_source_(ppt->index_tp_h) = y[ppw->pv->index_pt_h];
 
       if (ppt->has_source_h_prime == _TRUE_)
         _set_source_(ppt->index_tp_h_prime) = pvecmetric[ppw->index_mt_h_prime];
@@ -7708,6 +7730,8 @@ int perturb_print_variables(double tau,
   /** Summary: */
 
   /** - define local variables */
+  double scf_beta = 0.; //------------------------------------------------------> Define beta to be used in the tranformation into the Newtonian gauge (which is affected by the coupling)
+
   double k;
   int index_md;
 
@@ -7902,12 +7926,13 @@ int perturb_print_variables(double tau,
     if (pba->has_cdm == _TRUE_) {
 
       delta_cdm = y[ppw->pv->index_pt_delta_cdm];
-      if (ppt->gauge == synchronous) {
-        theta_cdm = 0.;
-      }
-      else {
-        theta_cdm = y[ppw->pv->index_pt_theta_cdm];
-      }
+      theta_cdm = y[ppw->pv->index_pt_theta_cdm];
+      //if (ppt->gauge == synchronous) { ---------------------------------------> [VdF] valid in synchronous gauge as well in case of coupling
+        //theta_cdm = 0.;
+      //}
+      //else {
+        //theta_cdm = y[ppw->pv->index_pt_theta_cdm];
+      //}
     }
 
     /* gravitational potentials */
@@ -8050,7 +8075,11 @@ int perturb_print_variables(double tau,
       }
 
       if (pba->has_cdm == _TRUE_) {
-        delta_cdm -= 3. * pvecback[pba->index_bg_H]*pvecback[pba->index_bg_a]*alpha;
+        // delta_cdm -= 3. * pvecback[pba->index_bg_H]*pvecback[pba->index_bg_a]*alpha; ---------------------------------------> [VdF] changed by the coupling
+        if (pba->has_scf == _TRUE_){
+          scf_beta = pba->scf_parameters[1]; // --------------------------------> [VdF] assigns beta value
+        }
+        delta_cdm -= (3.* pvecback[pba->index_bg_H]*pvecback[pba->index_bg_a]-scf_beta*pvecback[pba->index_bg_phi_prime_scf])*alpha;
         theta_cdm += k*k*alpha;
       }
 
@@ -8070,8 +8099,10 @@ int perturb_print_variables(double tau,
         theta_dcdm += k*k*alpha;
       }
 
-      if (pba->has_scf == _TRUE_) {
-        delta_scf += alpha*(-3.0*H*(1.0+pvecback[pba->index_bg_p_scf]/pvecback[pba->index_bg_rho_scf]));
+      if (pba->has_scf == _TRUE_) { //------------------------------------------> [VdF] transformation into the Newtonian gauge is changed by the coupling
+        scf_beta = pba->scf_parameters[1];
+        //delta_scf += alpha*(-3.0*H*(1.0+pvecback[pba->index_bg_p_scf]/pvecback[pba->index_bg_rho_scf]));
+        delta_scf -= alpha*(3.0*a*H*(1.0+pvecback[pba->index_bg_p_scf]/pvecback[pba->index_bg_rho_scf])+scf_beta*pvecback[pba->index_bg_rho_cdm]*pvecback[pba->index_bg_phi_prime_scf]/pvecback[pba->index_bg_rho_scf]);
         theta_scf += k*k*alpha;
       }
 
@@ -8313,6 +8344,9 @@ int perturb_derivs(double tau,
   /** Summary: */
 
   /** - define local variables */
+
+  /* Coupling \beta as local variable */
+  double scf_beta=0.;
 
   /* multipole */
   int l;
@@ -8709,10 +8743,17 @@ int perturb_derivs(double tau,
         dy[pv->index_pt_theta_cdm] = - a_prime_over_a*y[pv->index_pt_theta_cdm] + metric_euler; /* cdm velocity */
       }
 
-      /** - ----> synchronous gauge: cdm density only (velocity set to zero by definition of the gauge) */
+      /** - ----> synchronous gauge: cdm density only (velocity set to zero by definition of the gauge) */ //--------------------> [VdF] watch out: velocity not zero in the synchronous gauge in case of coupling
 
       if (ppt->gauge == synchronous) {
-        dy[pv->index_pt_delta_cdm] = -metric_continuity; /* cdm density */
+        if (pba->has_scf == _TRUE_) {
+          scf_beta = pba->scf_parameters[1]; // --------------------------------> [VdF] assign /beta value
+
+          dy[pv->index_pt_delta_cdm] = -metric_continuity -y[pv->index_pt_theta_cdm] +scf_beta*y[pv->index_pt_phi_prime_scf]; /* cdm density */ //---------------------> [VdF] changed by the coupling
+
+          dy[pv->index_pt_theta_cdm] = - a_prime_over_a*y[pv->index_pt_theta_cdm] +scf_beta*(k2*y[pv->index_pt_phi_scf]-pvecback[pba->index_bg_phi_prime_scf]*y[pv->index_pt_theta_cdm]); /* cdm velocity */ //-----------------------> [VdF] needed with the coupling
+        }
+        else dy[pv->index_pt_delta_cdm] = -metric_continuity; /* cdm density */
       }
     }
 
@@ -8852,16 +8893,16 @@ int perturb_derivs(double tau,
     /** - ---> scalar field (scf) */
 
     if (pba->has_scf == _TRUE_) {
-
+      scf_beta = pba->scf_parameters[1]; // ------------------------------------> [VdF] assign /beta value (should not be necessary as we already assigned it above)
       /** - ----> field value */
 
       dy[pv->index_pt_phi_scf] = y[pv->index_pt_phi_prime_scf];
 
-      /** - ----> Klein Gordon equation */
+      /** - ----> Klein Gordon equation */ //-----------------------------------> [VdF] Impacted by the coupling
 
       dy[pv->index_pt_phi_prime_scf] =  - 2.*a_prime_over_a*y[pv->index_pt_phi_prime_scf]
         - metric_continuity*pvecback[pba->index_bg_phi_prime_scf] //  metric_continuity = h'/2
-        - (k2 + a2*pvecback[pba->index_bg_ddV_scf])*y[pv->index_pt_phi_scf]; //checked
+        - (k2 + a2*pvecback[pba->index_bg_ddV_scf])*y[pv->index_pt_phi_scf] -scf_beta*a2*3.*pvecback[pba->index_bg_rho_cdm]*y[pv->index_pt_delta_cdm]; //-----------------------> [VdF] Additional term due to the coupling. Watch the factor 3 as the equation includes cdm physical density
 
     }
     /** - ---> interacting dark radiation */
@@ -9136,11 +9177,12 @@ int perturb_derivs(double tau,
 
     /** - ---> metric */
 
-    /** - ---> eta of synchronous gauge */
+    /** - ---> eta of synchronous gauge */ //-----------------------------------> [VdF] we also need h to be integrated below (because of the coupling)
 
     if (ppt->gauge == synchronous) {
 
       dy[pv->index_pt_eta] = pvecmetric[ppw->index_mt_eta_prime];
+      dy[pv->index_pt_h] = pvecmetric[ppw->index_mt_h_prime]; //----------------> [VdF] Get h of synchronous gauge
 
     }
 

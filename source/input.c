@@ -275,11 +275,11 @@ int input_init(
    * See input_try_unknown_parameters for the actual shooting
    *
    */
-
+//------------------------------------------------------------------------------> [VdF] We do not shoot scf because we have analytic expression of V(\phi)
   char * const target_namestrings[] = {"100*theta_s","Omega_dcdmdr","omega_dcdmdr",
-                                       "Omega_scf","Omega_ini_dcdm","omega_ini_dcdm","sigma8"};
+                                       "Omega_ini_dcdm","omega_ini_dcdm","sigma8"};
   char * const unknown_namestrings[] = {"h","Omega_ini_dcdm","Omega_ini_dcdm",
-                                        "scf_shooting_parameter","Omega_dcdmdr","omega_dcdmdr","A_s"};
+                                        "Omega_dcdmdr","omega_dcdmdr","A_s"};
   enum computation_stage target_cs[] = {cs_thermodynamics, cs_background, cs_background,
                                         cs_background, cs_background, cs_background, cs_nonlinear};
 
@@ -1392,12 +1392,16 @@ int input_read_parameters(
                                            &flag1,
                                            errmsg),
                errmsg,errmsg);
-    class_read_int("scf_tuning_index",pba->scf_tuning_index);
+// -----------------------------------------------------------------------------> No shooting, therefore assign phi and phi' from .ini
+    pba->phi_ini_scf = pba->scf_parameters[pba->scf_parameters_size-2];
+    pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
+    }
+  /**  class_read_int("scf_tuning_index",pba->scf_tuning_index);
     class_test(pba->scf_tuning_index >= pba->scf_parameters_size,
                errmsg,
                "Tuning index scf_tuning_index = %d is larger than the number of entries %d in scf_parameters. Check your .ini file.",pba->scf_tuning_index,pba->scf_parameters_size);
     /** - Assign shooting parameter */
-    class_read_double("scf_shooting_parameter",pba->scf_parameters[pba->scf_tuning_index]);
+    /** class_read_double("scf_shooting_parameter",pba->scf_parameters[pba->scf_tuning_index]);
 
     scf_lambda = pba->scf_parameters[0];
     if ((fabs(scf_lambda) <3.)&&(pba->background_verbose>1))
@@ -1424,7 +1428,7 @@ int input_read_parameters(
         pba->phi_prime_ini_scf = pba->scf_parameters[pba->scf_parameters_size-1];
       }
     }
-  }
+  } */
 
   /** (b) assign values to thermodynamics cosmological parameters */
 
@@ -3833,11 +3837,11 @@ int input_try_unknown_parameters(double * unknown_parameter,
         rho_dr_today = 0.;
       output[i] = (rho_dcdm_today+rho_dr_today)/(ba.H0*ba.H0)-pfzw->target_value[i]/ba.h/ba.h;
       break;
-    case Omega_scf:
+    //case Omega_scf:-----------------------------------------------------------> [VdF] no shooting for scf
       /** - In case scalar field is used to fill, pba->Omega0_scf is not equal to pfzw->target_value[i].*/
-      output[i] = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0)
-        -ba.Omega0_scf;
-      break;
+      //output[i] = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_scf]/(ba.H0*ba.H0)
+      //  -ba.Omega0_scf;
+      // break;
     case Omega_ini_dcdm:
     case omega_ini_dcdm:
       rho_dcdm_today = ba.background_table[(ba.bt_size-1)*ba.bg_size+ba.index_bg_rho_dcdm];
@@ -3991,7 +3995,7 @@ int input_get_guess(double *xguess,
       dxdy[index_guess] = 1./a_decay/ba.h/ba.h;
       //printf("x = Omega_ini_guess = %g, dxdy = %g\n",*xguess,*dxdy);
       break;
-    case Omega_scf:
+    /* case Omega_scf: ---------------------------------------------------------> [VdF] no shooting on scf
 
       /** - This guess is arbitrary, something nice using WKB should be implemented.
        *
@@ -4000,16 +4004,16 @@ int input_get_guess(double *xguess,
        *
        * - Version 3: use attractor solution */
 
-      if (ba.scf_tuning_index == 0){
+      /*if (ba.scf_tuning_index == 0){
         xguess[index_guess] = sqrt(3.0/ba.Omega0_scf);
         dxdy[index_guess] = -0.5*sqrt(3.0)*pow(ba.Omega0_scf,-1.5);
       }
       else{
         /* Default: take the passed value as xguess and set dxdy to 1. */
-        xguess[index_guess] = ba.scf_parameters[ba.scf_tuning_index];
+        /*xguess[index_guess] = ba.scf_parameters[ba.scf_tuning_index];
         dxdy[index_guess] = 1.;
       }
-      break;
+      break;*/
     case omega_ini_dcdm:
       Omega0_dcdmdr = 1./(ba.h*ba.h);
     case Omega_ini_dcdm:
@@ -4153,7 +4157,7 @@ int input_auxillary_target_conditions(struct file_content * pfc,
   switch (target_name){
   case Omega_dcdmdr:
   case omega_dcdmdr:
-  case Omega_scf:
+//  case Omega_scf:-------------------------------------------------------------> [VdF] no shooting on scf
   case Omega_ini_dcdm:
   case omega_ini_dcdm:
     /* Check that Omega's or omega's are nonzero: */

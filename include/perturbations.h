@@ -496,6 +496,7 @@ struct perturb_vector
   int* q_size_ncdm;	/**< number of discrete momenta (for each ncdm species) */
 
   int index_pt_eta;       /**< synchronous gauge metric perturbation eta*/
+  int index_pt_h;       /**< synchronous gauge metric perturbation h*/ //--------------------------------------> [VdF] h is not inferred through a constraint equation, it should be integrated because of the coupling
   int index_pt_phi;	      /**< newtonian gauge metric perturbation phi */
   int index_pt_hv_prime;  /**< vector metric perturbation h_v' in synchronous gauge */
   int index_pt_V;         /**< vector metric perturbation V in Newtonian gauge */

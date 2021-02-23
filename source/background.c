@@ -274,6 +274,7 @@ int background_functions(
   double a;
   /* scalar field quantities */
   double phi, phi_prime;
+  double scf_beta; //-----------------------------------------------------------> [VdF] Coupling \beta between dark matter and the scalr field
   /* Since we only know a_prime_over_a after we have rho_tot,
      it is not possible to simply sum up p_tot_prime directly.
      Instead we sum up dp_dloga = p_prime/a_prime_over_a. The formula is
@@ -289,6 +290,8 @@ int background_functions(
   rho_r=0.;
   rho_m=0.;
   a_rel = a / pba->a_today;
+  phi=0.; //--------------------------------------------------------------------> [VdF] It is necessary to initialize the two scalar field variables (phi and beta), in order to use beta*phi=0. without scalar field in the cdm conservation law below
+  scf_beta=0.;
 
   class_test(a_rel <= 0.,
              pba->error_message,
@@ -312,13 +315,35 @@ int background_functions(
   p_tot += 0;
   rho_m += pvecback[pba->index_bg_rho_b];
 
-  /* cdm */
+  /* Scalar field */
+  if (pba->has_scf == _TRUE_) {
+    scf_beta = pba->scf_parameters[1]; // --------------------------------------> [VdF] get \beta here to be used in cdm below (swapping the two blocs in order to spare one 'if')
+    phi = pvecback_B[pba->index_bi_phi_scf];
+    phi_prime = pvecback_B[pba->index_bi_phi_prime_scf];
+    pvecback[pba->index_bg_phi_scf] = phi; // value of the scalar field phi
+    pvecback[pba->index_bg_phi_prime_scf] = phi_prime; // value of the scalar field phi derivative wrt conformal time
+    pvecback[pba->index_bg_V_scf] = V_scf(pba,phi); //V_scf(pba,phi); //write here potential as function of phi
+    pvecback[pba->index_bg_dV_scf] = dV_scf(pba,phi); // dV_scf(pba,phi); //potential' as function of phi
+    pvecback[pba->index_bg_ddV_scf] = ddV_scf(pba,phi); // ddV_scf(pba,phi); //potential'' as function of phi
+    pvecback[pba->index_bg_rho_scf] = (phi_prime*phi_prime/(2*a*a) + V_scf(pba,phi))/3.; // energy of the scalar field. The field units are set automatically by setting the initial conditions
+    pvecback[pba->index_bg_p_scf] =(phi_prime*phi_prime/(2*a*a) - V_scf(pba,phi))/3.; // pressure of the scalar field
+    rho_tot += pvecback[pba->index_bg_rho_scf];
+    p_tot += pvecback[pba->index_bg_p_scf];
+    dp_dloga += 0.0; /** <-- This depends on a_prime_over_a, so we cannot add it now! */
+    //divide relativistic & nonrelativistic (not very meaningful for oscillatory models)
+    // rho_r += 3.*pvecback[pba->index_bg_p_scf]; //field pressure contributes radiation // ---------------------------------> [VdF] must be commented (unlike in v2.7 as it apparently gets Om_m from elsewhere)
+    // rho_m += pvecback[pba->index_bg_rho_scf] - 3.* pvecback[pba->index_bg_p_scf]; //the rest contributes matter // -------> [VdF] must be commented (unlike in v2.7)
+    //printf(" a= %e, Omega_scf = %f, \n ",a_rel, pvecback[pba->index_bg_rho_scf]/rho_tot );
+  }
+
+  /* cdm */ //------------------------------------------------------------------>[VdF] conservation law should account for the coupling
   if (pba->has_cdm == _TRUE_) {
-    pvecback[pba->index_bg_rho_cdm] = pba->Omega0_cdm * pow(pba->H0,2) / pow(a_rel,3);
+    pvecback[pba->index_bg_rho_cdm] = pba->Omega0_cdm * pow(pba->H0,2) * exp(scf_beta*phi)/pow(a_rel,3);
     rho_tot += pvecback[pba->index_bg_rho_cdm];
     p_tot += 0.;
     rho_m += pvecback[pba->index_bg_rho_cdm];
   }
+
 
   /* dcdm */
   if (pba->has_dcdm == _TRUE_) {
@@ -339,25 +364,7 @@ int background_functions(
     rho_r += pvecback[pba->index_bg_rho_dr];
   }
 
-  /* Scalar field */
-  if (pba->has_scf == _TRUE_) {
-    phi = pvecback_B[pba->index_bi_phi_scf];
-    phi_prime = pvecback_B[pba->index_bi_phi_prime_scf];
-    pvecback[pba->index_bg_phi_scf] = phi; // value of the scalar field phi
-    pvecback[pba->index_bg_phi_prime_scf] = phi_prime; // value of the scalar field phi derivative wrt conformal time
-    pvecback[pba->index_bg_V_scf] = V_scf(pba,phi); //V_scf(pba,phi); //write here potential as function of phi
-    pvecback[pba->index_bg_dV_scf] = dV_scf(pba,phi); // dV_scf(pba,phi); //potential' as function of phi
-    pvecback[pba->index_bg_ddV_scf] = ddV_scf(pba,phi); // ddV_scf(pba,phi); //potential'' as function of phi
-    pvecback[pba->index_bg_rho_scf] = (phi_prime*phi_prime/(2*a*a) + V_scf(pba,phi))/3.; // energy of the scalar field. The field units are set automatically by setting the initial conditions
-    pvecback[pba->index_bg_p_scf] =(phi_prime*phi_prime/(2*a*a) - V_scf(pba,phi))/3.; // pressure of the scalar field
-    rho_tot += pvecback[pba->index_bg_rho_scf];
-    p_tot += pvecback[pba->index_bg_p_scf];
-    dp_dloga += 0.0; /** <-- This depends on a_prime_over_a, so we cannot add it now! */
-    //divide relativistic & nonrelativistic (not very meaningful for oscillatory models)
-    rho_r += 3.*pvecback[pba->index_bg_p_scf]; //field pressure contributes radiation
-    rho_m += pvecback[pba->index_bg_rho_scf] - 3.* pvecback[pba->index_bg_p_scf]; //the rest contributes matter
-    //printf(" a= %e, Omega_scf = %f, \n ",a_rel, pvecback[pba->index_bg_rho_scf]/rho_tot );
-  }
+
 
   /* ncdm */
   if (pba->has_ncdm == _TRUE_) {
@@ -1966,7 +1973,7 @@ int background_initial_conditions(
   double rho_ncdm, p_ncdm, rho_ncdm_rel_tot=0.;
   double f,Omega_rad, rho_rad;
   int counter,is_early_enough,n_ncdm;
-  double scf_lambda;
+  double scf_lambda; //---------------------------------------------------------> [VdF] \lambda will be used to estimate \phi_ini_scf
   double rho_fld_today;
   double w_fld,dw_over_da_fld,integral_fld;
 
@@ -2073,7 +2080,7 @@ int background_initial_conditions(
 
   }
 
-  /** - Fix initial value of \f$ \phi, \phi' \f$
+  /** - Fix initial value of \f$ \phi, \phi' \f$ -------------------------------> [VdF] set \phi_ini_scf to ensure subdominant EDE, and \phi'_ini is the provided one.
    * set directly in the radiation attractor => fixes the units in terms of rho_ur
    *
    * TODO:
@@ -2083,24 +2090,9 @@ int background_initial_conditions(
    */
   if(pba->has_scf == _TRUE_){
     scf_lambda = pba->scf_parameters[0];
-    if(pba->attractor_ic_scf == _TRUE_){
-      pvecback_integration[pba->index_bi_phi_scf] = -1/scf_lambda*
-        log(rho_rad*4./(3*pow(scf_lambda,2)-12))*pba->phi_ini_scf;
-      if (3.*pow(scf_lambda,2)-12. < 0){
-        /** - --> If there is no attractor solution for scf_lambda, assign some value. Otherwise would give a nan.*/
-    	pvecback_integration[pba->index_bi_phi_scf] = 1./scf_lambda;//seems to the work
-        if (pba->background_verbose > 0)
-          printf(" No attractor IC for lambda = %.3e ! \n ",scf_lambda);
-      }
-      pvecback_integration[pba->index_bi_phi_prime_scf] = 2*pvecback_integration[pba->index_bi_a]*
-        sqrt(V_scf(pba,pvecback_integration[pba->index_bi_phi_scf]))*pba->phi_prime_ini_scf;
-    }
-    else{
-      printf("Not using attractor initial conditions\n");
-      /** - --> If no attractor initial conditions are assigned, gets the provided ones. */
-      pvecback_integration[pba->index_bi_phi_scf] = pba->phi_ini_scf;
-      pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
-    }
+    pvecback_integration[pba->index_bi_phi_scf] = -scf_lambda/3.*log(1.e-10*rho_rad/(0.5*pow(scf_lambda,2)/(3.-pow(scf_lambda,2))*(pba->Omega0_b+pba->Omega0_cdm)*pow(pba->H0,2)));
+    pvecback_integration[pba->index_bi_phi_prime_scf] = pba->phi_prime_ini_scf;
+
     class_test(!isfinite(pvecback_integration[pba->index_bi_phi_scf]) ||
                !isfinite(pvecback_integration[pba->index_bi_phi_scf]),
                pba->error_message,
@@ -2388,6 +2380,7 @@ int background_derivs(
   struct background_parameters_and_workspace * pbpaw;
   struct background * pba;
   double * pvecback, a, H, rho_M;
+  double scf_beta=0.; //--------------------------------------------------------> [VdF] define locally /beta to be used in coupled Klein-Gordon
 
   pbpaw = parameters_and_workspace;
   pba =  pbpaw->pba;
@@ -2443,23 +2436,24 @@ int background_derivs(
   }
 
   if (pba->has_scf == _TRUE_){
-    /** - Scalar field equation: \f$ \phi'' + 2 a H \phi' + a^2 dV = 0 \f$  (note H is wrt cosmic time) */
+    scf_beta = pba->scf_parameters[1]; //---------------------------------------> [VdF] get the value of \beta
+    /** - Scalar field equation: \f$ \phi'' + 2 a H \phi' + a^2 dV = -a^2 \beta\rho_cdm \f$  (note H is wrt cosmic time) */ //-------> [VdF] physical coupled KG
     dy[pba->index_bi_phi_scf] = y[pba->index_bi_phi_prime_scf];
     dy[pba->index_bi_phi_prime_scf] = - y[pba->index_bi_a]*
       (2*pvecback[pba->index_bg_H]*y[pba->index_bi_phi_prime_scf]
-       + y[pba->index_bi_a]*dV_scf(pba,y[pba->index_bi_phi_scf])) ;
+       + y[pba->index_bi_a]*dV_scf(pba,y[pba->index_bi_phi_scf])+y[pba->index_bi_a]*scf_beta*3.*pvecback[pba->index_bg_rho_cdm]); //-------> [VdF] watch the factor 3. to get physical cdm density
   }
 
   return _SUCCESS_;
 
 }
 
-/**
+/** ----------------------------------------------------------------------------> [VdF]: adapting the potential
  * Scalar field potential and its derivatives with respect to the field _scf
- * For Albrecht & Skordis model: 9908085
- * - \f$ V = V_{p_{scf}}*V_{e_{scf}} \f$
- * - \f$ V_e =  \exp(-\lambda \phi) \f$ (exponential)
- * - \f$ V_p = (\phi - B)^\alpha + A \f$ (polynomial bump)
+ * For Nunes & Lidsey model (0310882v2) where d\phi/dN=\lambda (constant),
+ * along with a coupling to dark matter through a conformal and contant interaction \beta.
+ * \phi_0 = 0.0 without loss of generality.
+ * \f$ V = A \exp((-3/\lambda+\beta) \phi) + B \exp(-\lambda \phi) + C \exp(-3/\lambda \phi) \f$
  *
  * TODO:
  * - Add some functionality to include different models/potentials (tuning would be difficult, though)
@@ -2480,103 +2474,112 @@ int background_derivs(
  and \f$ \rho^{class} \f$ has the proper dimension \f$ Mpc^-2 \f$.
 */
 
-double V_e_scf(struct background *pba,
+double V_A_scf(struct background *pba,
                double phi
                ) {
   double scf_lambda = pba->scf_parameters[0];
-  //  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  //  double scf_B      = pba->scf_parameters[3];
+  double scf_beta   = pba->scf_parameters[1];
+  double scf_A      = 1.5*pow(pba->H0,2)*pba->Omega0_cdm // -----------------> [VdF]: factor 3*H_0^2 to ensure physical density
+                      *(pow(scf_lambda,2)+2.*scf_beta*scf_lambda)/(3.-pow(scf_lambda,2)-scf_beta*scf_lambda);
 
-  return  exp(-scf_lambda*phi);
+  return  scf_A*exp((scf_beta-3./scf_lambda)*phi);
 }
 
-double dV_e_scf(struct background *pba,
+double dV_A_scf(struct background *pba,
                 double phi
                 ) {
   double scf_lambda = pba->scf_parameters[0];
-  //  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  //  double scf_B      = pba->scf_parameters[3];
+  double scf_beta  = pba->scf_parameters[1];
 
-  return -scf_lambda*V_scf(pba,phi);
+  return (scf_beta-3./scf_lambda)*V_A_scf(pba,phi);
 }
 
-double ddV_e_scf(struct background *pba,
+double ddV_A_scf(struct background *pba,
                  double phi
                  ) {
   double scf_lambda = pba->scf_parameters[0];
-  //  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  //  double scf_B      = pba->scf_parameters[3];
+  double scf_beta  = pba->scf_parameters[1];
 
-  return pow(-scf_lambda,2)*V_scf(pba,phi);
+  return pow(scf_beta-3./scf_lambda,2)*V_A_scf(pba,phi);
 }
 
+double V_B_scf(struct background *pba,
+               double phi
+               ) {
+  double scf_lambda = pba->scf_parameters[0];
+  double scf_beta   = pba->scf_parameters[1];
+  double scf_B      = 0.5*pow(pba->H0,2)*(6.-pow(scf_lambda,2)) // --------------> [VdF]: factor 3*H_0^2 to ensure physical density
+                      *(pba->Omega0_scf-pba->Omega0_cdm*(pow(scf_lambda,2)+scf_beta*scf_lambda)/(3.-pow(scf_lambda,2)-scf_beta*scf_lambda)
+                      -pba->Omega0_b*pow(scf_lambda,2)/(3.-pow(scf_lambda,2)));
 
-/** parameters and functions for the polynomial coefficient
- * \f$ V_p = (\phi - B)^\alpha + A \f$(polynomial bump)
- *
- * double scf_alpha = 2;
- *
- * double scf_B = 34.8;
- *
- * double scf_A = 0.01; (values for their Figure 2)
- */
-
-double V_p_scf(
-               struct background *pba,
-               double phi) {
-  //  double scf_lambda = pba->scf_parameters[0];
-  double scf_alpha  = pba->scf_parameters[1];
-  double scf_A      = pba->scf_parameters[2];
-  double scf_B      = pba->scf_parameters[3];
-
-  return  pow(phi - scf_B,  scf_alpha) +  scf_A;
+  return  scf_B*exp(-scf_lambda*phi);
 }
 
-double dV_p_scf(
-                struct background *pba,
-                double phi) {
+double dV_B_scf(struct background *pba,
+                double phi
+                ) {
+  double scf_lambda = pba->scf_parameters[0];
+  //double scf_beta  = pba->scf_parameters[1];
 
-  //  double scf_lambda = pba->scf_parameters[0];
-  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  double scf_B      = pba->scf_parameters[3];
-
-  return   scf_alpha*pow(phi -  scf_B,  scf_alpha - 1);
+  return -scf_lambda*V_B_scf(pba,phi);
 }
 
-double ddV_p_scf(
-                 struct background *pba,
-                 double phi) {
-  //  double scf_lambda = pba->scf_parameters[0];
-  double scf_alpha  = pba->scf_parameters[1];
-  //  double scf_A      = pba->scf_parameters[2];
-  double scf_B      = pba->scf_parameters[3];
+double ddV_B_scf(struct background *pba,
+                 double phi
+                 ) {
+  double scf_lambda = pba->scf_parameters[0];
+  // double scf_beta  = pba->scf_parameters[1];
 
-  return  scf_alpha*(scf_alpha - 1.)*pow(phi -  scf_B,  scf_alpha - 2);
+  return pow(scf_lambda,2)*V_B_scf(pba,phi);
 }
 
-/** Fianlly we can obtain the overall potential \f$ V = V_p*V_e \f$
+double V_C_scf(struct background *pba,
+               double phi
+               ) {
+  double scf_lambda = pba->scf_parameters[0];
+  double scf_beta   = pba->scf_parameters[1];
+  double scf_C      = 1.5*pow(pba->H0,2)*pow(scf_lambda,2)/(3.-pow(scf_lambda,2))*pba->Omega0_b; //-----> [VdF]: factor 3*H_0^2 to ensure physical density
+
+  return  scf_C*exp(-3./scf_lambda*phi);
+}
+
+double dV_C_scf(struct background *pba,
+                double phi
+                ) {
+  double scf_lambda = pba->scf_parameters[0];
+  //double scf_beta  = pba->scf_parameters[1];
+
+  return -3./scf_lambda*V_C_scf(pba,phi);
+}
+
+double ddV_C_scf(struct background *pba,
+                 double phi
+                 ) {
+  double scf_lambda = pba->scf_parameters[0];
+  // double scf_beta  = pba->scf_parameters[1];
+
+  return pow(3./scf_lambda,2)*V_C_scf(pba,phi);
+}
+
+/** Finally we can obtain the overall potential \f$ V = V_A+V_B+V_C \f$ //------>[VdF]
  */
 
 double V_scf(
              struct background *pba,
              double phi) {
-  return  V_e_scf(pba,phi)*V_p_scf(pba,phi);
+  return  V_A_scf(pba,phi)+V_B_scf(pba,phi)+V_C_scf(pba,phi);
 }
 
 double dV_scf(
               struct background *pba,
               double phi) {
-  return dV_e_scf(pba,phi)*V_p_scf(pba,phi) + V_e_scf(pba,phi)*dV_p_scf(pba,phi);
+  return dV_A_scf(pba,phi)+dV_B_scf(pba,phi)+dV_C_scf(pba,phi);
 }
 
 double ddV_scf(
                struct background *pba,
                double phi) {
-  return ddV_e_scf(pba,phi)*V_p_scf(pba,phi) + 2*dV_e_scf(pba,phi)*dV_p_scf(pba,phi) + V_e_scf(pba,phi)*ddV_p_scf(pba,phi);
+  return ddV_A_scf(pba,phi)+ddV_B_scf(pba,phi)+ddV_C_scf(pba,phi);
 }
 
 /**
